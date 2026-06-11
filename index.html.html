@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0a0f">
+<title>DYNAMIC STACK MASTER</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700;800&display=swap');
+
+/* 기본 마진 제거랑 모바일 터치 시 퍼런 박스 생기는 거 방지 */
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+
+:root{
+  --bg:#0a0a0f;--accent:#00f5a0;--danger:#ff3c5f;--white:#f0f0f0;--dim:#3a3a4a;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+}
+html,body{
+  width:100%;height:100%;overflow:hidden;
+  background:var(--bg);
+  font-family:'Space Grotesk',sans-serif;
+  color:var(--white);
+  touch-action:none; /* 브라우저 기본 스크롤이랑 더블탭 확대 끄기 */
+  user-select:none;-webkit-user-select:none;
+}
+canvas{
+  position:fixed;inset:0;
+  width:100%!important;height:100%!important;
+  touch-action:none;display:block;
+}
+
+/* ── HUD UI 레이아웃 ── */
+#hud{
+  position:fixed;top:0;left:0;right:0;
+  display:flex;justify-content:space-between;align-items:flex-start;
+  padding:calc(16px + var(--safe-top)) 24px 16px;
+  pointer-events:none;z-index:10;
+}
+#score-wrap{display:flex;flex-direction:column;gap:2px;}
+#score-label{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent);opacity:.8;}
+#score{
+  font-size:clamp(40px,12vw,60px);font-weight:800;line-height:1;
+  color:var(--white);font-variant-numeric:tabular-nums;
+  text-shadow:0 0 30px rgba(0,245,160,.35);
+  transition:transform .08s ease;
+}
+#score.pop{transform:scale(1.25);} /* 점수 오를 때 팅기는 효과 */
+#best-wrap{text-align:right;display:flex;flex-direction:column;gap:2px;}
+#best-label{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--dim);}
+#best{font-size:clamp(18px,5vw,26px);font-weight:700;color:var(--dim);font-variant-numeric:tabular-nums;}
+
+/* 사운드 단계 디버깅 겸 확인용 표시창 */
+#stage-indicator{
+  position:fixed;left:24px;top:calc(75px + var(--safe-top));
+  font-size:11px;font-weight:800;letter-spacing:1px;
+  color:var(--accent);opacity:0.6;pointer-events:none;z-index:10;
+}
+
+/* 콤보 글자 띄우는 곳 */
+#combo-display{
+  position:fixed;top:45%;left:50%;
+  transform:translate(-50%,-50%);
+  font-size:clamp(24px,8vw,36px);font-weight:800;
+  color:var(--accent);letter-spacing:2px;
+  pointer-events:none;z-index:20;opacity:0;
+  text-shadow:0 0 24px var(--accent);
+  transition:opacity .2s, transform .2s;
+  white-space:nowrap;
+}
+
+/* 우측 속도 게이지 바 */
+#speed-bar{
+  position:fixed;right:16px;top:50%;transform:translateY(-50%);
+  width:4px;height:clamp(80px,20vh,140px);
+  background:rgba(255,255,255,.07);border-radius:2px;z-index:10;pointer-events:none;
+}
+#speed-fill{
+  position:absolute;bottom:0;left:0;right:0;
+  background:linear-gradient(0deg,var(--accent),#00c8ff);
+  border-radius:2px;height:0%;
+  transition:height .4s;box-shadow:0 0 8px var(--accent);
+}
+
+/* 시작 및 게임오버 화면 팝업 */
+#overlay{
+  position:fixed;inset:0;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  gap:clamp(16px,4vh,28px);z-index:30;
+  background:rgba(10,10,15,.9);
+  backdrop-filter:blur(10px); /* 글래스모피즘 블러 효과 */
+  padding:calc(20px + var(--safe-top)) 24px calc(20px + var(--safe-bottom));
+}
+#overlay.hidden{display:none;}
+.overlay-icon{font-size:clamp(48px,14vw,72px);line-height:1;filter:drop-shadow(0 0 20px var(--accent));}
+.overlay-title{font-size:clamp(36px,12vw,56px);font-weight:800;letter-spacing:-1px;text-align:center;}
+.overlay-title span{color:var(--accent);}
+.overlay-sub{font-size:clamp(13px,3.5vw,15px);font-weight:400;color:#888;letter-spacing:.5px;text-align:center;line-height:1.7;}
+#final-score-display{display:none;flex-direction:column;align-items:center;gap:4px;}
+#final-score-display.show{display:flex;}
+.fs-label{font-size:11px;letter-spacing:3px;color:#555;text-transform:uppercase;}
+.fs-number{font-size:clamp(60px,18vw,90px);font-weight:800;line-height:1;color:var(--accent);text-shadow:0 0 40px rgba(0,245,160,.5);}
+#new-record{font-size:13px;font-weight:700;letter-spacing:3px;color:gold;text-transform:uppercase;display:none;}
+#new-record.show{display:block;}
+
+#btn{
+  margin-top:4px;
+  padding:clamp(14px,4vw,18px) clamp(40px,12vw,56px);
+  background:var(--accent);color:#000;
+  font-family:'Space Grotesk',sans-serif;
+  font-size:clamp(15px,4.5vw,18px);font-weight:800;
+  letter-spacing:2px;text-transform:uppercase;
+  border:none;border-radius:6px;cursor:pointer;
+  transition:transform .1s,box-shadow .2s;
+  box-shadow:0 0 32px rgba(0,245,160,.45);
+  -webkit-appearance:none;min-width:160px;pointer-events:auto;
+}
+#btn:active{transform:scale(.94);}
+
+#mute-btn{
+  position:fixed;bottom:calc(16px + var(--safe-bottom));right:16px;
+  width:44px;height:44px;background:rgba(255,255,255,.08);
+  border:none;border-radius:50%;font-size:20px;cursor:pointer;
+  z-index:10;color:#fff;display:flex;align-items:center;justify-content:center;
+  pointer-events:auto;transition:background .2s;
+}
+#mute-btn:active{background:rgba(255,255,255,.18);}
+
+/* 블록 놓쳤을 때 화면 잠깐 빨개지는 효과용 */
+#miss-flash{position:fixed;inset:0;background:var(--danger);opacity:0;pointer-events:none;z-index:25;}
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div id="score-wrap">
+    <div id="score-label">SCORE</div>
+    <div id="score">0</div>
+  </div>
+  <div id="best-wrap">
+    <div id="best-label">BEST</div>
+    <div id="best">0</div>
+  </div>
+</div>
+
+<div id="stage-indicator">AUDIO STAGE: 1</div>
+<div id="combo-display"></div>
+<div id="miss-flash"></div>
+<div id="speed-bar"><div id="speed-fill"></div></div>
+
+<canvas id="canvas"></canvas>
+
+<button id="mute-btn" title="음소거">🔊</button>
+
+<div id="overlay">
+  <div class="overlay-icon">🚀</div>
+  <div class="overlay-title"><span>STACK EVO</span></div>
+  <div class="overlay-sub">화면을 탭해서 블록을 쌓으세요<br>10점마다 배경 음악 비트가 진화합니다</div>
+  <div id="final-score-display">
+    <div class="fs-label">Final Score</div>
+    <div class="fs-number" id="final-num">0</div>
+  </div>
+  <div id="new-record">🏆 NEW RECORD!</div>
+  <button id="btn">PLAY</button>
+</div>
+
+<script>
+// ============================================================================
+// 1. 오디오 처리 파트 (Web Audio API 활용)
+// 외부 mp3 소스 없이 브라우저 내장 오실레이터(주파수 발생기)로 사운드 직접 구현함.
+// ============================================================================
+let audioCtx = null;
+let muted = false;
+let bgmNodes = [];
+
+// 사용자 상호작용(탭)이 있어야 사운드 컨텍스트를 켤 수 있어서 함수로 묶어둠
+function getAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+// 오실레이터 노드랑 게인(볼륨) 노드 연결해서 깡소리 만드는 함수
+function playTone(freq, type, duration, vol=0.3, delay=0) {
+  if (muted) return;
+  try {
+    const ac = getAudio();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain); gain.connect(ac.destination);
+    
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ac.currentTime + delay);
+    gain.gain.setValueAtTime(vol, ac.currentTime + delay);
+    // 볼륨을 서서히 0에 수렴하게 깎아서 틱 현상(클리핑 노이즈) 방지하고 페이드아웃 시킴
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + delay + duration);
+    
+    osc.start(ac.currentTime + delay);
+    osc.stop(ac.currentTime + delay + duration + 0.01);
+  } catch(e){}
+}
+
+// 기본 C major 도레미파 음계 주파수 매핑 배열
+const SCALE = [261.63,293.66,329.63,349.23,392,440,493.88,523.25,587.33,659.25,698.46,783.99,880];
+function playPlaceSound(scoreIdx) {
+  const freq = SCALE[scoreIdx % SCALE.length];
+  playTone(freq, 'square', 0.12, 0.23); // 레트로한 8비트 스퀘어 파형 사용
+}
+
+// 퍼펙트 연속 칠 때 주파수 가산 공식 (음이 점점 올라가게 연출)
+function playPerfectSound(streak) {
+  const base = 440 * Math.pow(2, (streak-1)/12); // 평균율 피치 계산 공식 응용
+  playTone(base,      'sine',   0.18, 0.35);
+  playTone(base*1.5,  'sine',   0.1,  0.15, 0.08); // 완전 5도 화음 섞어서 쨍하게
+}
+
+function playGameOverSound() {
+  [523.25, 392, 329.63, 220].forEach((f,i) => playTone(f,'sawtooth',0.3,0.25,i*0.1));
+}
+
+// 10점 단위 멀티레이어 적응형 BGM 엔진
+// 점수 오를 때 루프 중간에 끊기면 어색하니까 하나의 setTimeout 스케줄러 안에서 채널을 추가하는 방식 채택
+function startBGM() {
+  stopBGM();
+  if (muted) return;
+  try {
+    const ac = getAudio();
+    const bpm = 130; 
+    const step = 60 / bpm / 4; // 16비트 음표 한 칸의 시간(초)
+
+    // 드럼 시퀀서 패턴 배열 정의
+    const kickPattern  = [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0];
+    const hihatPattern = [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0];
+    const snarePattern = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0]; // 10점 이상 빌드업용
+    const bassNotes    = [55,55,65,55, 55,55,65,73, 55,55,65,55, 73,65,55,48]; // A minor 베이스라인 코드웍
+
+    let tick = 0;
+    const masterGain = ac.createGain();
+    masterGain.gain.value = 0.16;
+    masterGain.connect(ac.destination);
+    bgmNodes.push(masterGain);
+
+    function scheduleTick() {
+      if (muted) return;
+      const now = ac.currentTime;
+      const i = tick % 16;
+
+      // 현재 점수 기반 단계 계산 (0단계 ~ 3단계)
+      const currentStage = Math.min(3, Math.floor(score / 10));
+      document.getElementById('stage-indicator').textContent = `AUDIO STAGE: ${currentStage + 1}`;
+
+      // [공통 기본 레이어] 쿵쿵 울리는 킥 드럼 (주파수 스윕 기법: 140Hz -> 45Hz로 순간 다운)
+      if (kickPattern[i]) {
+        const osc = ac.createOscillator(); const g = ac.createGain();
+        osc.connect(g); g.connect(masterGain);
+        osc.frequency.setValueAtTime(140, now);
+        osc.frequency.exponentialRampToValueAtTime(45, now + 0.14);
+        g.gain.setValueAtTime(1.0, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        osc.start(now); osc.stop(now + 0.26);
+      }
+
+      // [공통 기본 레이어] 칩셋 화이트노이즈 기법 흉내 낸 하이햇 (수학적 랜덤 버퍼 생성 후 하이패스 필터 통과시킴)
+      if (hihatPattern[i]) {
+        const bufSize = ac.sampleRate * 0.04;
+        const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+        const d = buf.getChannelData(0);
+        for(let n=0; n<bufSize; n++) d[n] = Math.random() * 2 - 1; // 랜덤 노이즈
+        const src = ac.createBufferSource(); src.buffer = buf;
+        const g = ac.createGain(); const filter = ac.createBiquadFilter();
+        filter.type = 'highpass'; filter.frequency.value = 8500; // 고음역대만 패스
+        src.connect(filter); filter.connect(g); g.connect(masterGain);
+        g.gain.setValueAtTime(0.25, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+        src.start(now); src.stop(now + 0.05);
+      }
+
+      // [STAGE 2 추가 - 10점 이상] 밴드패스 필터 씌운 노이즈 스네어 드럼 레이어 활성화
+      if (currentStage >= 1 && snarePattern[i]) {
+        const bufSize = ac.sampleRate * 0.08;
+        const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+        const d = buf.getChannelData(0);
+        for(let n=0; n<bufSize; n++) d[n] = Math.random() * 2 - 1;
+        const src = ac.createBufferSource(); src.buffer = buf;
+        const g = ac.createGain(); const filter = ac.createBiquadFilter();
+        filter.type = 'bandpass'; filter.frequency.value = 1200; // 중간 톤 깎아서 탁 치는 느낌 유도
+        src.connect(filter); filter.connect(g); g.connect(masterGain);
+        g.gain.setValueAtTime(0.35, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+        src.start(now); src.stop(now + 0.09);
+      }
+
+      // [공통 기본 레이어] 로우패스 필터로 부드럽게 만든 톱니파(Sawtooth) 베이스 멜로디
+      if (i % 2 === 0) {
+        let freq = bassNotes[i/2 % bassNotes.length];
+        
+        // [STAGE 4 추가 - 30점 이상] 분위기 피크 찍을 때 주파수 한 옥타브 올려서 긴장감 극대화
+        if (currentStage >= 3) freq = freq * 2; 
+
+        const osc = ac.createOscillator(); const g = ac.createGain();
+        const filter = ac.createBiquadFilter();
+        filter.type = 'lowpass'; filter.frequency.value = 450;
+        osc.connect(filter); filter.connect(g); g.connect(masterGain);
+        osc.type = 'sawtooth'; osc.frequency.value = freq;
+        g.gain.setValueAtTime(0.55, now); g.gain.exponentialRampToValueAtTime(0.001, now + step * 1.7);
+        osc.start(now); osc.stop(now + step * 1.9);
+      }
+
+      // [STAGE 3 추가 - 20점 이상] 뿅뿅거리는 삼각파(Triangle) 기반 아르페지오 신디사이저 라인 가산 합산
+      if (currentStage >= 2 && tick % 2 === 0) {
+        const arpPattern = [440, 523.25, 587.33, 659.25, 783.99, 880, 659.25, 523.25];
+        const arpFreq = arpPattern[(tick / 2) % arpPattern.length];
+        
+        const osc = ac.createOscillator(); const g = ac.createGain();
+        osc.connect(g); g.connect(masterGain);
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(arpFreq, now);
+        g.gain.setValueAtTime(0.18, now); g.gain.exponentialRampToValueAtTime(0.001, now + step * 0.9);
+        osc.start(now); osc.stop(now + step * 1.0);
+      }
+
+      tick++;
+      const id = setTimeout(scheduleTick, step * 1000);
+      bgmNodes.push({clear:()=>clearTimeout(id)});
+    }
+    scheduleTick();
+  } catch(e){}
+}
+
+function stopBGM() {
+  bgmNodes.forEach(n => { try{ if(n.clear) n.clear(); else n.disconnect(); }catch(e){} });
+  bgmNodes = [];
+}
+
+const muteBtn = document.getElementById('mute-btn');
+muteBtn.addEventListener('click', e => {
+  e.stopPropagation(); muted = !muted;
+  muteBtn.textContent = muted ? '🔇' : '🔊';
+  if (muted) stopBGM(); else if (running) startBGM();
+});
+
+// ============================================================================
+// 2. 게임 그래픽스 & 핵심 물리엔진 코어 파트
+// ============================================================================
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+const overlay      = document.getElementById('overlay');
+const scoreEl      = document.getElementById('score');
+const bestEl       = document.getElementById('best');
+const btnEl        = document.getElementById('btn');
+const comboEl      = document.getElementById('combo-display');
+const speedFill    = document.getElementById('speed-fill');
+const missFlash    = document.getElementById('miss-flash');
+const finalDisp    = document.getElementById('final-score-display');
+const finalNum     = document.getElementById('final-num');
+const newRecord    = document.getElementById('new-record');
+
+const ROWS_VISIBLE   = 12;
+const BLOCK_H        = () => Math.round(canvas.height / 22);
+const CAMERA_EASE    = 0.08; // 보간법(Lerp) 카메라 댐핑용 속도 가중치
+const SWING_BASE     = 3.5;  
+const MAX_SPEED      = 12.0; 
+const SPEED_STEP     = 0.45; 
+const PERFECT_THRESH = 6;    // 퍼펙트 판정 가로축 오차 허용 픽셀 마진
+
+// 8단 그라데이션 컬러 매트릭스 배열
+const PALETTE = [
+  ['#00f5a0','#00c8ff'], ['#ff6b6b','#feca57'], ['#a29bfe','#fd79a8'], ['#00cec9','#6c5ce7'],
+  ['#f7971e','#ffd200'], ['#56ccf2','#2f80ed'], ['#e96c6c','#ff8c42'], ['#b8f400','#00f5a0']
+];
+
+// 입체감 줄 때 어두운 가짜 그림자 색상을 실시간 연산하면 부하 심해서 맵 객체에 해시캐싱함 (가비지컬렉터 과부하 방지)
+const darkenCache = new Map();
+function darken(color, factor) {
+  const key = color + factor;
+  if (darkenCache.has(key)) return darkenCache.get(key);
+  const tmp = document.createElement('canvas'); tmp.width = tmp.height = 1;
+  const tc = tmp.getContext('2d'); tc.fillStyle = color; tc.fillRect(0,0,1,1);
+  const d = tc.getImageData(0,0,1,1).data;
+  const result = `rgb(${Math.round(d[0]*factor)},${Math.round(d[1]*factor)},${Math.round(d[2]*factor)})`;
+  darkenCache.set(key, result);
+  return result;
+}
+
+// 블록 층수 올라갈 때 색 부드럽게 섞이게 해주는 선형 보간 함수
+function lerpColor(c1,c2,t){
+  const parse=c=>({r:parseInt(c.slice(1,3),16),g:parseInt(c.slice(3,5),16),b:parseInt(c.slice(5,7),16)});
+  const a=parse(c1),b=parse(c2);
+  return `rgb(${Math.round(a.r+(b.r-a.r)*t)},${Math.round(a.g+(b.g-a.g)*t)},${Math.round(a.b+(b.b-a.b)*t)})`;
+}
+
+function blockColor(idx){
+  const [c1,c2]=PALETTE[Math.floor(idx/8)%PALETTE.length];
+  return lerpColor(c1,c2,(idx%8)/7);
+}
+
+// ── 데이터 모델 정의 변수 ──
+let stack=[], current=null;
+let score=0, best=parseInt(localStorage.getItem('stackBest')||'0');
+let running=false, gameOver=false;
+let cameraY=0, targetCameraY=0;
+let perfectStreak=0;
+let swingSpeed=SWING_BASE;
+let swingDir=1;
+
+let particles=[];     // 파편 더미 배열
+let bgStars=[];       // 뒷배경 우주 별무리 배열
+let shootingStars=[]; // 🌠 별동별 풀
+let shockwaves=[];    // 💥 퍼펙트 이펙트 링 풀
+let screenShake={x:0,y:0,life:0}; // 화면 흔들림 제어 객체
+let comboTO=null;
+
+bestEl.textContent=best;
+
+// 레티나/고해상도 디스플레이 비율 깨짐 보정용 크기 동적 캘리브레이션
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  canvas.width=window.innerWidth*dpr; canvas.height=window.innerHeight*dpr;
+  canvas.style.width=window.innerWidth+'px'; canvas.style.height=window.innerHeight+'px';
+  ctx.scale(dpr,dpr); W=window.innerWidth; H=window.innerHeight;
+}
+let W,H;
+resize();
+window.addEventListener('resize',()=>{resize(); if(running)initGame();});
+
+const BASE_W=()=>Math.min(W*0.72,320);
+const bh=()=>BLOCK_H();
+function blockY(layer){ return H - bh() - layer * bh(); }
+function w2s(y){ return y + cameraY; } // 월드 좌표계를 스크린 상단 이동에 맞춰 Y축 맵핑
+
+function initBgStars(){
+  bgStars = [];
+  for(let i=0; i<45; i++){
+    bgStars.push({
+      x: Math.random(), y: Math.random(),
+      size: Math.random() * 1.3 + 0.5, alpha: Math.random() * 0.4 + 0.1,
+      parallaxSpeed: Math.random() * 0.25 + 0.06 // 레이어 깊이감 주려고 시차 이동 속도 다르게 줌
+    });
+  }
+}
+initBgStars();
+
+// 🌠 별똥별 구조체 인스턴스 생성 스폰 로직
+function spawnShootingStar() {
+  shootingStars.push({
+    x: Math.random() * (W * 1.2) - (W * 0.2), // 왼쪽 위 경계 밖 사선 스폰 포지셔닝
+    y: -50,
+    length: Math.random() * 60 + 40,
+    speed: Math.random() * 12 + 8,
+    alpha: 1.0,
+    color: ['#00f5a0', '#00c8ff', '#ffffff', '#fffd82'][Math.floor(Math.random() * 4)]
+  });
+}
+
+function initGame(){
+  stack=[]; particles=[]; shootingStars=[]; shockwaves=[]; score=0; perfectStreak=0; 
+  swingSpeed=SWING_BASE; swingDir=1; gameOver=false;
+  cameraY=0; targetCameraY=0;
+  darkenCache.clear(); initBgStars();
+  screenShake={x:0,y:0,life:0};
+  scoreEl.textContent='0'; speedFill.style.height='0%';
+  document.getElementById('stage-indicator').textContent = `AUDIO STAGE: 1`;
+
+  const w=BASE_W();
+  stack.push({x:W/2-w/2, w, color:blockColor(0)}); spawnMoving();
+}
+
+function spawnMoving(){
+  const prev=stack[stack.length-1];
+  const layer=stack.length;
+  const startX=swingDir>0 ? -prev.w : W;
+  current={x:startX,w:prev.w,layer,color:blockColor(layer)};
+  swingDir*=-1;
+}
+
+function onTap(e){
+  if(e.target===btnEl||e.target===muteBtn) return;
+  if(!running||gameOver) return;
+  placeBlock();
+}
+document.addEventListener('pointerdown',onTap,{passive:true});
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault(); onTap({target:canvas});}
+});
+
+// 블록 놓기 클릭 시 연산 처리부 (오버랩 체크 공학 계산)
+function placeBlock(){
+  const prev=stack[stack.length-1];
+  const left=Math.max(current.x,prev.x);
+  const right=Math.min(current.x+current.w,prev.x+prev.w);
+  const overlap=right-left; // 겹치는 면적 가로 너비 도출
+
+  // 완전히 삐져나가면 아웃 판정
+  if(overlap<=0){triggerGameOver(); return;}
+
+  const diff=Math.abs(current.x-prev.x);
+  const perfect=diff<=PERFECT_THRESH;
+
+  let newX=left, newW=overlap;
+
+  if(perfect){ // 퍼펙트 보정 조건문 만족 시 크기 보존 및 이펙트 트래킹
+    newX=prev.x; newW=prev.w;
+    perfectStreak++;
+    showCombo(perfectStreak); playPerfectSound(perfectStreak);
+    screenShake={x:0,y:-5,life:7}; // 퍼펙트 칠 때 종축(Y축) 위주 반동 카메라워크 부여
+
+    // 💥 퍼펙트 전용 구체 파형 충격파 벡터 배열 푸시
+    shockwaves.push({
+      x: newX + newW / 2,
+      y: w2s(blockY(stack.length)),
+      radius: 0,
+      maxRadius: Math.max(newW * 1.1, 140),
+      alpha: 1.0,
+      color: current.color
+    });
+
+  } else {
+    perfectStreak=0; comboEl.style.opacity='0';
+    // 덜 겹쳐서 잘려 나간 자투리 파편 스폰 오프셋 좌표 산출 식
+    const cutX=current.x<prev.x ? current.x : current.x+current.w-(current.w-overlap);
+    spawnCutParticles(cutX, current.w-overlap, current.layer, current.color);
+    playPlaceSound(score);
+  }
+
+  stack.push({x:newX,w:newW,color:current.color});
+  score++; scoreEl.textContent=score;
+  scoreEl.classList.remove('pop'); void scoreEl.offsetWidth; scoreEl.classList.add('pop');
+
+  // 선형 카메라 트래킹: 적재 층수가 화면 중간 넘어가면 그때부터 카메라 타겟 위로 스크롤링
+  const topLayer=stack.length-1;
+  if(topLayer>ROWS_VISIBLE/2){
+    targetCameraY=(topLayer-ROWS_VISIBLE/2)*bh();
+  }
+  
+  // 가속도 커브 공식: 점수 오를수록 점진적으로 스윙 연산 속도 증가
+  swingSpeed=Math.min(SWING_BASE+score*SPEED_STEP,MAX_SPEED);
+  const pct=((swingSpeed-SWING_BASE)/(MAX_SPEED-SWING_BASE))*100;
+  speedFill.style.height=pct+'%';
+
+  spawnMoving();
+}
+
+function spawnCutParticles(x,w,layer,color){
+  const sy=w2s(blockY(layer)); const cx=x+w/2;
+  const count=Math.min(8,Math.ceil(w/8));
+  for(let i=0;i<count;i++){
+    particles.push({
+      x:cx+(Math.random()-.5)*w, y:sy,
+      vx:(Math.random()-.5)*5, vy:-Math.random()*4-1, // 상단 반발력 계수 부여
+      life:1, color, size:3+Math.random()*5, rot:Math.random()*Math.PI
+    });
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// [수학/물리 핵심 함수] 델타타임 보정형 물리 상태 업데이트 엔진 파트
+// ────────────────────────────────────────────────────────────────────────────
+function updateGameObjects(dt) {
+  // 1. 자유낙하 파편 물리 계산 (오일러 적분법: Euler Integration 적용)
+  // 매 프레임 속도(v)에 중력 가속도(g)를 더하고, 위치(s)에 속도(v)를 누적하는 미분 방정식 모델링 형태.
+  for(let i=particles.length-1; i>=0; i--){
+    const p=particles[i]; 
+    p.x += p.vx * dt; 
+    p.y += p.vy * dt; 
+    p.vy += 0.18 * dt; // 수직 가속도 성분에 중력상수 가산 (p.vy = p.vy + g * dt)
+    p.rot += 0.1 * dt; // 등속 회전 모멘텀 가산
+    p.life -= 0.03 * dt; // 프레임 단위 균등 수명 감쇠 연산
+    if(p.life<=0) particles.splice(i,1);
+  }
+
+  // 2. 🌠 별동별 하향 우측 대각선 벡터 운동 계산
+  for(let i=shootingStars.length-1; i>=0; i--){
+    const ss = shootingStars[i];
+    ss.x += ss.speed * 1.2 * dt; // X축 이동 벡터
+    ss.y += ss.speed * dt;       // Y축 이동 벡터 (사선 변위)
+    ss.alpha -= 0.015 * dt;      // 공기 저항으로 사라지는 느낌 유도 투명도 감쇠
+    if(ss.alpha <= 0 || ss.y > H + 50 || ss.x > W + 50) {
+      shootingStars.splice(i,1);
+    }
+  }
+
+  // 3. 💥 퍼펙트 원형 충격파 이징(Easing) 반경 확장 연산
+  // 반경 제한 한계점(maxRadius)에 가까워질수록 확산 선속도가 줄어드는 Lerp 이징 공식을 적용함.
+  for(let i=shockwaves.length-1; i>=0; i--){
+    const sw = shockwaves[i];
+    sw.radius += (sw.maxRadius - sw.radius) * 0.14 * dt; // 타겟 보간 추적식 적용
+    sw.alpha -= 0.05 * dt; // 불투명도 리니어 아웃
+    if(sw.alpha <= 0 || sw.radius >= sw.maxRadius - 1) {
+      shockwaves.splice(i,1);
+    }
+  }
+}
+
+// ── 특수 파티클 렌더링 파이프라인 함수 ──
+function drawSpecialEffects() {
+  // 별동별 선 실시간 드로잉
+  shootingStars.forEach(ss => {
+    ctx.save();
+    ctx.globalAlpha = ss.alpha;
+    ctx.strokeStyle = ss.color; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.shadowColor = ss.color; ctx.shadowBlur = 15; // 모던 웹 하드웨어 가속 광원 블러 효과 할당
+    ctx.beginPath();
+    ctx.moveTo(ss.x, ss.y);
+    // 현재 헤드 포지션에서 속도 벡터의 역방향으로 꼬리 선 연장 렌더링
+    ctx.lineTo(ss.x - ss.length * 0.8, ss.y - ss.length * 0.6);
+    ctx.stroke(); ctx.restore();
+  });
+
+  // 퍼펙트 원형 아크 쇼크웨이브 드로잉
+  shockwaves.forEach(sw => {
+    ctx.save();
+    ctx.globalAlpha = sw.alpha;
+    ctx.strokeStyle = sw.color; ctx.lineWidth = 4;
+    ctx.shadowColor = sw.color; ctx.shadowBlur = 25;
+    ctx.beginPath();
+    ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2); // 라디안 2파이(=360도) 원 묘사
+    ctx.stroke(); ctx.restore();
+  });
+  ctx.globalAlpha = 1.0;
+}
+
+function drawParticles(){
+  particles.forEach(p=>{
+    ctx.save(); ctx.globalAlpha=p.life; ctx.fillStyle=p.color;
+    ctx.translate(p.x,p.y); ctx.rotate(p.rot);
+    ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size); ctx.restore();
+  });
+  ctx.globalAlpha=1;
+}
+
+function showCombo(streak){
+  if(streak<2){comboEl.style.opacity='0'; return;}
+  clearTimeout(comboTO);
+  const msgs=['','','DOUBLE!','TRIPLE!','QUAD!','PENTA!','HEXA!','LUCKY!'];
+  comboEl.textContent=streak<msgs.length?msgs[streak]:`×${streak} PERFECT!`;
+  comboEl.style.transform='translate(-50%, -50%) scale(1.15)';
+  comboEl.style.opacity='1';
+  comboTO=setTimeout(()=>{ 
+    comboEl.style.opacity='0'; comboEl.style.transform='translate(-50%, -50%) scale(1.0)';
+  },900);
+}
+
+function triggerGameOver(){
+  gameOver=true; running=false; current=null;
+  stopBGM(); playGameOverSound();
+  missFlash.style.transition='none'; missFlash.style.opacity='0.45';
+  setTimeout(()=>{ missFlash.style.transition='opacity .4s'; missFlash.style.opacity='0'; },80);
+
+  if(score>best){
+    best=score; localStorage.setItem('stackBest',best);
+    newRecord.classList.add('show');
+  } else { newRecord.classList.remove('show'); }
+  bestEl.textContent=best; finalNum.textContent=score; finalDisp.classList.add('show');
+  btnEl.textContent='RETRY'; setTimeout(()=>overlay.classList.remove('hidden'),300);
+}
+
+// 의사 3D 투영 기하학 렌더링 (Pseudo-3D Isometric Projection 꼼수 구현)
+// 회전 행렬 연산 없이 다각형 정점 시차 왜곡(Polygon Vertex Offset)을 줘서 3D 상자처럼 보이게 만듦.
+function drawBlock(x,w,sy,color,isMoving=false){
+  const h=bh(); 
+  const depth=Math.round(h*0.28); // 상단 사선 입체 기하 깊이 비율값 설정
+  if(sy>H+h||sy<-h*3) return; // 화면 뷰포트 영역 외곽 컬링(Culling) 처리로 렌더링 오버헤드 최적화
+
+  ctx.save();
+  if(isMoving){ ctx.shadowColor=color; ctx.shadowBlur=25; }
+
+  // 1. 앞면 벽 드로잉
+  ctx.fillStyle=color; ctx.fillRect(x,sy,w,h-2); ctx.shadowBlur=0;
+
+  // 2. 우측 측면 벽 드로잉 (다각형 패스 설정 후 정점 오프셋 연산)
+  ctx.fillStyle=darken(color,0.45); ctx.beginPath();
+  ctx.moveTo(x+w,sy); ctx.lineTo(x+w+depth,sy+depth);
+  ctx.lineTo(x+w+depth,sy+h-2+depth); ctx.lineTo(x+w,sy+h-2); ctx.fill();
+
+  // 3. 하단 밑면 아랫벽 드로잉 (그림자 대용 입체감 묘사 파트)
+  ctx.fillStyle=darken(color,0.32); ctx.beginPath();
+  ctx.moveTo(x,sy+h-2); ctx.lineTo(x+w,sy+h-2);
+  ctx.lineTo(x+w+depth,sy+h-2+depth); ctx.lineTo(x+depth,sy+h-2+depth); ctx.fill();
+  ctx.restore();
+}
+
+// 현재 움직이는 타일의 네온 색상이 배경 중심에 투영되게 만드는 동적 방사형 그라데이션 광원 스크린 배경 처리
+function drawDynamicBackground(){
+  let baseColor = '#00f5a0';
+  if (current) baseColor = current.color;
+  else if (stack.length > 0) baseColor = stack[stack.length - 1].color;
+  
+  let grad = ctx.createRadialGradient(W / 2, H / 2, 5, W / 2, H / 2, Math.max(W, H) * 0.95);
+  grad.addColorStop(0, darken(baseColor, 0.09));
+  grad.addColorStop(0.5, '#0b0b12'); grad.addColorStop(1, '#040407');
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+}
+
+// 배경 스타필드 패럴랙스 무한 루핑 스크롤 구현 함수
+function drawBgStars(){
+  ctx.save();
+  bgStars.forEach(s => {
+    let sx = s.x * W;
+    // 카메라 Y축 시차 연산 및 화면 밖 탈출 시 나머지 연산(%)을 통한 무한 반복 랩핑 구조
+    let sy = (s.y * H + cameraY * s.parallaxSpeed) % H;
+    if(sy < 0) sy += H;
+    ctx.fillStyle = `rgba(255, 255, 255, ${s.alpha})`; ctx.fillRect(sx, sy, s.size, s.size);
+  });
+  ctx.restore();
+}
+
+function drawGrid(){
+  ctx.strokeStyle = 'rgba(255,255,255,0.015)'; ctx.lineWidth = 1;
+  const step = 40;
+  for(let x=0; x<W; x+=step){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  let startY = (cameraY % step + step) % step;
+  for(let y=startY; y<H; y+=step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+}
+
+// ============================================================================
+// 3. 메인 하드웨어 가속 프레임 갱신 게임 루프 (Main Loop)
+// ============================================================================
+let lastTime=0;
+function loop(ts){
+  // ──────────────────────────────────────────────────────────────────────────
+  // [물리 중요 알고리즘] 기기 독립형 타임 스텝 델타 타임(dt) 계산 수식
+  // 주사율(60Hz, 120Hz, 144Hz)에 상관없이 게임 속도가 균일하게 고정되도록 프레임 간격 시간차 보정.
+  // 기준점인 60fps(16.67ms) 대비 현재 프레임의 변동 비율을 구한 뒤 최대 변동폭 한계를 3프레임으로 캡핑함.
+  // ──────────────────────────────────────────────────────────────────────────
+  const dt = Math.min((ts - lastTime) / 16.67, 3); 
+  lastTime = ts;
+
+  // 카메라 완화 알고리즘 (선형 보간법 감쇠 추적식: 타겟 값에 부드럽게 근접시킴)
+  cameraY += (targetCameraY - cameraY) * CAMERA_EASE;
+
+  // 🌠 점수가 고조될수록 우주 환경 에너지 가중치 상승 -> 별똥별 랜덤 난수 스폰 확률 동적 가산 공식
+  const spawnChance = 0.012 + (Math.min(score, 40) * 0.001);
+  if(running && Math.random() < spawnChance) {
+    spawnShootingStar();
+  }
+
+  // 💥 화면 진동(Screen Shake) 효과 진폭 감쇠 제어부
+  // 퍼펙트 타이밍 판정 시 가산된 진동 라이프 수명을 기반으로 사인파(sin) 진동 변위를 발생시킴.
+  if(screenShake.life > 0){
+    screenShake.life--; 
+    screenShake.x = Math.sin(screenShake.life * 1.5) * 2.5; // 사인 함수 기반 오실레이션 진동 유도
+    screenShake.y *= 0.75; // 댐핑 감쇠
+  } else { screenShake.x = 0; screenShake.y = 0; }
+
+  ctx.save(); 
+  ctx.translate(screenShake.x, screenShake.y); // 전체 캔버스 컨텍스트 매트릭스를 흔들림 변위만큼 쉬프팅
+
+  // ── 정적/동적 배경 렌더링 파이프라인 트리 전개 ──
+  drawDynamicBackground();
+  drawBgStars();
+  drawGrid();
+
+  // 조작 중인 현재 움직이는 블록 좌우 왕복 물리 변위 계산
+  if(running && current){
+    current.x += swingSpeed * dt * (swingDir < 0 ? 1 : -1);
+    // 화면 좌우 한계선 강제 예외 이탈 방지 예외처리 바운더리 마진
+    if(current.x < -current.w - 20) current.x = -current.w - 20;
+    if(current.x > W + 20) current.x = W + 20;
+  }
+
+  // 특수 및 파편 파티클 물리 변위 일괄 엔진 업데이트
+  updateGameObjects(dt);
+
+  // 쌓여 있는 스택 리스트 순차 드로잉
+  for(let i=0; i<stack.length; i++){
+    drawBlock(stack[i].x, stack[i].w, w2s(blockY(i)), stack[i].color);
+  }
+  // 현재 제어 중인 상단 블록 드로잉
+  if(current && running){
+    drawBlock(current.x, current.w, w2s(blockY(current.layer)), current.color, true);
+  }
+
+  // 상단 마스킹 특수 효과 그리기
+  drawSpecialEffects();
+  drawParticles();
+
+  ctx.restore();
+  requestAnimationFrame(loop); // 브라우저 주사율에 맞춰 다음 프레임 예약 호출 (고성능 애니메이션 기법)
+}
+
+btnEl.addEventListener('click',e=>{
+  e.stopPropagation(); overlay.classList.add('hidden'); finalDisp.classList.remove('show');
+  initGame(); running=true; startBGM();
+});
+
+// 엔진 루프 최초 부팅 시동
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
